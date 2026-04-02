@@ -1,0 +1,229 @@
+public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,csv',
+        ]);
+    
+        $file = $request->file('file');
+        $spreadsheet = IOFactory::load($file->getPathname());
+        $sheetData = $spreadsheet->getActiveSheet()->toArray();
+    
+        $punchinmoring = null;
+        $punchoutmoring = null;
+        $punchinafternoon = null;
+        $punchoutafternoon = null;
+    
+        $employee = null;
+        $previousDate = null; 
+        $previousPunchTimeMorning = null;
+        $previousPunchTimeAfternoon = null;
+        $behavior = null;
+
+        
+    
+        foreach ($sheetData as $rowIndex => $row) {
+            
+
+            if ($rowIndex == 0) {
+                continue;
+            }
+    
+            try {
+                $Time = Carbon::parse($row[1]);
+            } catch (\Exception $e) {
+                continue;
+            }
+    
+            $currentDate = $Time->format('Y-m-d');
+            if ($previousDate && $previousDate != $currentDate) {
+                $punchinmoring = null;
+                $punchoutmoring = null;
+                $punchinafternoon = null;
+                $punchoutafternoon = null;
+                $previousPunchTimeMorning = null;
+                $previousPunchTimeAfternoon = null;
+            }
+    
+            // Update previous date to the current date
+            $previousDate = $currentDate;
+    
+            $currentEmployee = User::find($row[0]);
+            if ($employee && $employee != $currentEmployee) {
+                // Reset times if the date has changed
+                $punchinmoring = null;
+                $punchoutmoring = null;
+                $punchinafternoon = null;
+                $punchoutafternoon = null;
+                $previousPunchTimeMorning = null;
+                $previousPunchTimeAfternoon = null;
+            }
+
+            $employee = User::find($row[0]);
+    
+            // Define time ranges for morning and afternoon
+            $morning = Carbon::parse('07:00');
+            $morning2 = Carbon::parse('09:00');
+            $morning3 = Carbon::parse('11:00');
+            $morning4 = Carbon::parse('12:30');
+    
+            $afternoon = Carbon::parse('12:30');
+            $afternoon2 = Carbon::parse('13:30');
+            $afternoon3 = Carbon::parse('16:00');
+            $afternoon4 = Carbon::parse('17:50');
+    
+            // Validate and assign punch-in and punch-out times based on defined ranges for morning
+            if ($Time->format('H:i') >= $morning->format('H:i') && $Time->format('H:i') < $morning2->format('H:i')) {
+                // Check if it's within 10 minutes of the previous punch-in time for the morning
+                if (!$previousPunchTimeMorning || $Time->diffInMinutes($previousPunchTimeMorning) > 10) {
+                    $punchinmoring = $Time;  // Set punch-in time if it's in the morning range and 10 minutes apart
+
+                    if ($Time->format('H:i') >= $morning->format('H:i') && $Time->format('H:i') < '08:00'){
+                        $now = Carbon::parse($Time);
+                        $targetTime = $now->copy()->setTimeFromTimeString('08:00');  
+                        $diffInMinutes = $targetTime->diffInMinutes($now, false); // signed difference in minutes
+                        $minutes = abs($diffInMinutes);
+
+                        if ($minutes >= 60) {
+                            $hours = floor($minutes / 60);
+                            $behavior = $hours . ' hour' . ($hours > 1 ? 's' : '') . ' early';
+                        } else {
+                            $behavior = $minutes . ' minutes early';
+                        }
+
+                        //$behavior = 'Early';
+                    }
+                    elseif($Time->format('H:i') >= '08:00' && $Time->format('H:i') <= '08:05'){
+                        $behavior = 'On time';
+                    }
+                    elseif($Time->format('H:i') > '08:05' && $Time->format('H:i') < '11:30'){
+                        $now = Carbon::parse($Time);
+                        $targetTime = $now->copy()->setTimeFromTimeString('08:00');  
+                        $diffInMinutes = $targetTime->diffInMinutes($now, false); // signed difference in minutes
+                        $minutes = abs($diffInMinutes);
+
+                        if ($minutes >= 60) {
+                            $hours = floor($minutes / 60);
+                            $behavior = $hours . ' hour' . ($hours > 1 ? 's' : '') . ' late';
+                        } else {
+                            $behavior = $minutes . ' minutes late';
+                        }
+                        //$behavior = 'Late';
+                    }
+                }
+            } elseif ($Time->format('H:i') >= $morning3->format('H:i') && $Time->format('H:i') < $morning4->format('H:i')) {
+                // Check if it's within 10 minutes of the previous punch-out time for the morning
+                if (!$previousPunchTimeMorning || $Time->diffInMinutes($previousPunchTimeMorning) > 10) {
+                    $punchoutmoring = $Time; // Set punch-out time if it's in the morning range and 10 minutes apart
+                }
+            }
+    
+            // Validate and assign punch-in and punch-out times based on defined ranges for afternoon
+            if ($Time->format('H:i') >= $afternoon->format('H:i') && $Time->format('H:i') < $afternoon2->format('H:i')) {
+                // Check if it's within 10 minutes of the previous punch-in time for the afternoon
+                if (!$previousPunchTimeAfternoon || $Time->diffInMinutes($previousPunchTimeAfternoon) > 10) {
+                    $punchinafternoon = $Time;  // Set punch-in time if it's in the afternoon range and 10 minutes apart
+
+                    if ($Time->format('H:i') >= $afternoon->format('H:i') && $Time->format('H:i') < '13:00'){
+                        $now = Carbon::parse($Time);
+                        $targetTime = $now->copy()->setTimeFromTimeString('13:00');  
+                        $diffInMinutes = $targetTime->diffInMinutes($now, false); // signed difference in minutes
+                        $minutes = abs($diffInMinutes);
+
+                        if ($minutes >= 60) {
+                            $hours = floor($minutes / 60);
+                            $behavior = $hours . ' hour' . ($hours > 1 ? 's' : '') . ' early';
+                        } else {
+                            $behavior = $minutes . ' minutes early';
+                        }
+                        //$behavior = 'Early';
+                    }
+                    elseif($Time->format('H:i') >= '13:00' && $Time->format('H:i') <= '13:05'){
+                        $behavior = 'On time';
+                    }
+                    elseif($Time->format('H:i') > '13:05' && $Time->format('H:i') < '15:30'){
+                        $now = Carbon::parse($Time);
+                        $targetTime = $now->copy()->setTimeFromTimeString('13:00');  
+                        $diffInMinutes = $targetTime->diffInMinutes($now, false); // signed difference in minutes
+                        $minutes = abs($diffInMinutes);
+
+                        if ($minutes >= 60) {
+                            $hours = floor($minutes / 60);
+                            $behavior = $hours . ' hour' . ($hours > 1 ? 's' : '') . ' late';
+                        } else {
+                            $behavior = $minutes . ' minutes late';
+                        }
+
+                        //$behavior = 'Late';
+                    }
+                }
+            } elseif ($Time->format('H:i') >= $afternoon3->format('H:i') && $Time->format('H:i') < $afternoon4->format('H:i')) {
+                // Check if it's within 10 minutes of the previous punch-out time for the afternoon
+                if (!$previousPunchTimeAfternoon || $Time->diffInMinutes($previousPunchTimeAfternoon) > 10) {
+                    $punchoutafternoon = $Time; // Set punch-out time if it's in the afternoon range and 10 minutes apart
+                }
+            }
+    
+            // Save the attendance data for morning
+            if ($punchinmoring && $punchoutmoring) {
+                $existingMorningAttendance = Attendance::where('user_id', $employee->id)
+                    ->where('date', $punchinmoring->format('Y-m-d'))
+                    ->where('punched_in', $punchinmoring)
+                    ->where('punched_out', $punchoutmoring)
+                    ->first();
+    
+                if ($existingMorningAttendance) {
+                    // Delete the existing records if a duplicate is found
+                    $existingMorningAttendance->delete();
+                }
+                $total_hours = Carbon::parse($punchinmoring)->diffInHours($punchoutmoring);
+                // Create a new Attendance record for morning
+                Attendance::create([
+                    'user_id' => $employee->id,
+                    'date' => $punchinmoring->format('Y-m-d'),
+                    'punched_in' => $punchinmoring,
+                    'punched_out' => $punchoutmoring,
+                    'behavior' => $behavior,
+                    'type' => 'imported',
+                    'total_hours' => $total_hours,
+                    'entry' => 'imported',
+                    'status' => '',
+                    'amount' => round(((int)str_replace(',', '', $employee->salary) / 20) / 2, 2),
+                ]);
+            }
+    
+            // Save the attendance data for afternoon
+            if ($punchinafternoon && $punchoutafternoon) {
+                $existingAfternoonAttendance = Attendance::where('user_id', $employee->id)
+                    ->where('date', $punchinafternoon->format('Y-m-d'))
+                    ->where('punched_in', $punchinafternoon)
+                    ->where('punched_out', $punchoutafternoon)
+                    ->first();
+    
+                if ($existingAfternoonAttendance) {
+                    // Delete the existing records if a duplicate is found
+                    $existingAfternoonAttendance->delete();
+                }
+                $total_hours = Carbon::parse($punchinafternoon)->diffInHours($punchoutafternoon);
+                // Create a new Attendance record for afternoon
+                Attendance::create([
+                    'user_id' => $employee->id,
+                    'date' => $punchinafternoon->format('Y-m-d'),
+                    'punched_in' => $punchinafternoon,
+                    'punched_out' => $punchoutafternoon,
+                    'behavior' => $behavior,
+                    'type' => 'imported',
+                    'total_hours' => $total_hours,
+                    'entry' => 'imported',
+                    'status' => '',
+                    'amount' => round(((int)str_replace(',', '', $employee->salary) / 20) / 2, 2),
+                ]);
+            }
+    
+            // Update the previous punch-in/out times for future comparisons
+            $previousPunchTimeMorning = $punchoutmoring ?? $punchinmoring;
+            $previousPunchTimeAfternoon = $punchoutafternoon ?? $punchinafternoon;
+        }
+    
+        // Return a success message or redirect
+        return redirect()->back()->with('success', 'Attendance imported successfully!');
+    }

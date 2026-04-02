@@ -1,0 +1,119 @@
+Import Without deleting old attendances with same details
+
+
+    public function import(Request $request)
+    {
+        // Validate the request to ensure a file is uploaded
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,csv',
+        ]);
+    
+        // Load the uploaded file
+        $file = $request->file('file');
+        $spreadsheet = IOFactory::load($file->getPathname());
+        $sheetData = $spreadsheet->getActiveSheet()->toArray();
+    
+        // Initialize punch-in and punch-out times as null
+        $punchinmoring = null;
+        $punchoutmoring = null;
+        $punchinafternoon = null;
+        $punchoutafternoon = null;
+    
+        $employee = null;
+        $previousDate = null; // Store the previous date for comparison
+    
+        // Iterate over the data and save to the database, starting from the second row (index 1)
+        foreach ($sheetData as $rowIndex => $row) {
+            // Skip the first row (header)
+            if ($rowIndex == 0) {
+                continue;
+            }
+    
+            // Ensure that row[1] contains a valid datetime format
+            try {
+                // Directly parse the date-time string from Excel (row[1] should be in 'YYYY-MM-DD HH:MM:SS' format)
+                $Time = Carbon::parse($row[1]);
+            } catch (\Exception $e) {
+                // Handle invalid date-time format (optional)
+                continue;
+            }
+    
+            // Check if the date has changed; if so, reset the punch-in/out times
+            $currentDate = $Time->format('Y-m-d');
+            if ($previousDate && $previousDate != $currentDate) {
+                // Reset times if the date has changed
+                $punchinmoring = null;
+                $punchoutmoring = null;
+                $punchinafternoon = null;
+                $punchoutafternoon = null;
+            }
+    
+            // Update previous date to the current date
+            $previousDate = $currentDate;
+    
+            $employee = User::find($row[0]);
+            
+            // Define time ranges for morning and afternoon
+            $morning = Carbon::parse('07:00');
+            $morning2 = Carbon::parse('09:00');
+            $morning3 = Carbon::parse('11:00');
+            $morning4 = Carbon::parse('12:30');
+            
+            $afternoon = Carbon::parse('12:30');
+            $afternoon2 = Carbon::parse('13:30');
+            $afternoon3 = Carbon::parse('16:00');
+            $afternoon4 = Carbon::parse('17:00');
+    
+            // Assign punch-in and punch-out times based on defined ranges for morning
+            if ($Time->format('H:i') >= $morning->format('H:i') && $Time->format('H:i') < $morning2->format('H:i')) {
+                $punchinmoring = $Time;  // Set punch-in time if it's in the morning range
+            } elseif ($Time->format('H:i') >= $morning3->format('H:i') && $Time->format('H:i') < $morning4->format('H:i')) {
+                $punchoutmoring = $Time; // Set punch-out time if it's in the morning range
+            }
+    
+            // Assign punch-in and punch-out times based on defined ranges for afternoon
+            if ($Time->format('H:i') >= $afternoon->format('H:i') && $Time->format('H:i') < $afternoon2->format('H:i')) {
+                $punchinafternoon = $Time;  // Set punch-in time if it's in the afternoon range
+            } elseif ($Time->format('H:i') >= $afternoon3->format('H:i') && $Time->format('H:i') < $afternoon4->format('H:i')) {
+                $punchoutafternoon = $Time; // Set punch-out time if it's in the afternoon range
+            }
+
+                
+        // After loop, check if punch-in and punch-out times are available for morning and afternoon
+        if ($punchinmoring && $punchoutmoring) {
+            // Create a new Attendance record for morning
+            Attendance::create([
+                'user_id' => $employee->id, // Assuming you're saving for the authenticated user
+                'date' => $punchinmoring->format('Y-m-d'), // Use the formatted date from punch-in time
+                'punched_in' => $punchinmoring,
+                'punched_out' => $punchoutmoring,
+                'behavior' => 'imported',
+                'type' => 'imported',
+                'total_hours' => 0, // Adjust if necessary
+                'entry' => 'imported',
+                'status' => '',
+                'amount' => 0,
+            ]);
+        }
+    
+        if ($punchinafternoon && $punchoutafternoon) {
+            // Create a new Attendance record for afternoon
+            Attendance::create([
+                'user_id' => $employee->id, // Use the employee's ID
+                'date' => $punchinafternoon->format('Y-m-d'), // Use the formatted date from punch-in time
+                'punched_in' => $punchinafternoon,
+                'punched_out' => $punchoutafternoon,
+                'behavior' => 'imported',
+                'type' => 'imported',
+                'total_hours' => 0, // Adjust if necessary
+                'entry' => 'imported',
+                'status' => '',
+                'amount' => 0,
+            ]);
+        }
+        }
+
+    
+        // Return a success message or redirect
+        return redirect()->back()->with('success', 'Attendance imported successfully!');
+    }
